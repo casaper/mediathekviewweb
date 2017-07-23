@@ -1,3 +1,10 @@
+import BRm3u8ToMP4s from './handlers/BRm3u8ToMP4s';
+import WDRm3u8ToMP4s from './handlers/WDRm3u8ToMP4s';
+import formatBytes from './handlers/formatBytes';
+import isBRm3u8 from './handlers/isBRm3u8';
+import isWDRm3u8 from './handlers/isWDRm3u8';
+import randomString from './handlers/randomString';
+
 var socket = io();
 var currentPage = 0;
 var itemsPerPage = 15;
@@ -26,61 +33,6 @@ XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
     this.baseOpen(method, url, async, user, password);
 }
 
-function isWDRm3u8(url) {
-    let regex = /https?:\/\/wdradaptiv-vh.akamaihd.net\/i\/medp\/ondemand\/(\S+?)\/(\S+?)\/(\d+?)\/(\d+?)\/,?([,\d_]+?),?\.mp4.*m3u8/
-    
-    return regex.test(url);
-}
-
-function WDRm3u8ToMP4s(url) {
-    let regex = /https?:\/\/wdradaptiv-vh.akamaihd.net\/i\/medp\/ondemand\/(\S+?)\/(\S+?)\/(\d+?)\/(\d+?)\/,?([,\d_]+?),?\.mp4.*m3u8/
-    let match = regex.exec(url);
-
-    if (match == null) {
-        return url;
-    }
-
-    let region = (match[1] == 'weltweit') ? 'ww' : match[1];
-    let fsk = match[2];
-    let unknownNumber = match[3];
-    let id = match[4];
-    let qualities = match[5].split(',');
-    
-    let mp4s = [];
-
-    for (var i = 0; i < qualities.length; i++) {
-        let mp4 = `http://ondemand-${region}.wdr.de/medp/${fsk}/${unknownNumber}/${id}/${qualities[i]}.mp4`;
-        mp4s.push(mp4);
-    }
-
-    return mp4s;
-}
-
-function isBRm3u8(url) {
-    let regex = /https?:\/\/cdn-vod-ios.br.de\/i\/(.*?),([a-zA-Z0-9,]+),\.mp4\.csmil/;
-
-    return regex.test(url);
-}
-
-function BRm3u8ToMP4s(url) {
-    let regex = /https?:\/\/cdn-vod-ios.br.de\/i\/(.*?),([a-zA-Z0-9,]+),\.mp4\.csmil/;
-    let match = regex.exec(url);
-
-    if (match == null) {
-        return url;
-    }
-
-
-    let qualities = match[2].split(',');
-    let mp4s = [];
-
-    for (var i = 0; i < qualities.length; i++) {
-        mp4s.push(`http://cdn-storage.br.de/${match[1]}${qualities[i]}.mp4`);
-    }
-
-    return mp4s;
-}
-
 /*polyfills for stupid internet explorer*/
 if (!String.prototype.endsWith) {
     String.prototype.endsWith = function(searchString, position) {
@@ -100,6 +52,12 @@ if (!String.prototype.startsWith) {
     };
 }
 
+
+const modalIsOpen = (modalDOM) => {
+  return (modalDOM.data('bs.modal') || {}).isShown
+}
+const getQueryString = () => $('#queryInput').val().trim();
+
 var locale = window.navigator.userLanguage || window.navigator.language;
 moment.locale(locale);
 
@@ -111,29 +69,12 @@ Number.prototype.pad = function(size) {
     return s;
 }
 
-function modalIsOpen(modalDOM) {
-    return (modalDOM.data('bs.modal') || {}).isShown;
-}
+const querySplits = (query) => (
+  query.trim().toLowerCase().split(/\s+/)
+    .filter((split) => (split.length > 0))
+);
 
-function randomString(len) {
-    var text = "";
-    var possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-    for (var i = 0; i < len; i++)
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-
-    return text;
-}
-
-function formatBytes(bytes, decimals) {
-    if (!(parseInt(bytes) >= 0)) return '?';
-    else if (bytes == 0) return '0 Byte';
-
-    var k = 1000;
-    var sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-    var i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
-}
+const splitFilter = (split) => split.slice(1).split(',').filter(split => split.length > 0);
 
 function parseQuery(query) {
     let channels = [];
@@ -142,52 +83,36 @@ function parseQuery(query) {
     let descriptions = [];
     let generics = [];
 
-    let splits = query.trim().toLowerCase().split(/\s+/).filter((split) => {
-        return (split.length > 0);
+    querySplits(query).forEach(split => {
+
+      if (split[0] === '!') {
+        const chanel = splitFilter(split);
+        return (chanel.length > 0) && channels.push(chanel);
+      }
+
+      if (split[0] === '#') {
+        const topic = splitFilter(split);
+        return (topic.length > 0) && topics.push(topic);
+      }
+
+      if (split[0] === '+') {
+        const title = splitFilter(split);
+        return (title.length > 0) && titles.push(title);
+      }
+
+      if (split[0] === '*') {
+        const description = splitFilter(split);
+        return (description.length > 0) && descriptions.push(description);
+      }
+      generics = generics.concat(split.split(/\s+/));
     });
 
-    for (let i = 0; i < splits.length; i++) {
-        let split = splits[i];
-
-        if (split[0] == '!') {
-            let c = split.slice(1, split.length).split(',').filter((split) => {
-                return (split.length > 0);
-            });
-            if (c.length > 0) {
-                channels.push(c);
-            }
-        } else if (split[0] == '#') {
-            let t = split.slice(1, split.length).split(',').filter((split) => {
-                return (split.length > 0);
-            });
-            if (t.length > 0) {
-                topics.push(t);
-            }
-        } else if (split[0] == '+') {
-            let t = split.slice(1, split.length).split(',').filter((split) => {
-                return (split.length > 0);
-            });
-            if (t.length > 0) {
-                titles.push(t);
-            }
-        } else if (split[0] == '*') {
-            let d = split.slice(1, split.length).split(',').filter((split) => {
-                return (split.length > 0);
-            });
-            if (d.length > 0) {
-                descriptions.push(d);
-            }
-        } else {
-            generics = generics.concat(split.split(/\s+/));
-        }
-    }
-
     return {
-        channels: channels,
-        topics: topics,
-        titles: titles,
-        descriptions: descriptions,
-        generics: generics
+        channels,
+        topics,
+        titles,
+        descriptions,
+        generics
     }
 }
 
@@ -272,9 +197,7 @@ function trackQuery() {
     trackQuery();
 }
 
-function getQueryString() {
-    return $('#queryInput').val().trim();
-}
+
 
 function setQueryFromURIHash() {
     let props = parseURIHash(window.location.hash);
