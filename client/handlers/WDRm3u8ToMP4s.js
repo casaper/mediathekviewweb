@@ -3,7 +3,7 @@ const WDRm3u8ToMP4s = (url) => {
   const match = regex.exec(url);
   if (match === null) return url;
 
-  
+
   const region = (match[1] == 'weltweit') ? 'ww' : match[1];
   const fsk = match[2];
   const unknownNumber = match[3];
